@@ -11,9 +11,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        // "Open with" / an SVG dropped on the exe arrives as the first argument.
-        var argumentos = Environment.GetCommandLineArgs();
-        if (argumentos.Length > 1) Loaded += async (_, _) => await Vm.CargarArchivo(argumentos[1]);
+        // "Open with" / SVGs or folders dropped on the exe arrive as arguments.
+        var argumentos = Environment.GetCommandLineArgs()[1..];
+        if (argumentos.Length > 0) Loaded += async (_, _) => await Vm.CargarArchivos(argumentos);
     }
 
     private MainViewModel Vm => (MainViewModel)DataContext;
@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private async void AlSoltar(object sender, DragEventArgs e)
     {
         Zona.Stroke = (Brush)FindResource("InputBorderBrush");
-        if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } archivos) await Vm.CargarArchivo(archivos[0]);
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] { Length: > 0 } archivos) await Vm.CargarArchivos(archivos);
     }
 
     private void AbrirLink(object sender, RequestNavigateEventArgs e)

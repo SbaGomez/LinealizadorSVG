@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
@@ -8,27 +7,41 @@ namespace LinealizadorSVG.Core;
 /// <summary>One path of the clean SVG, ready for Bambu Studio.</summary>
 /// <param name="D">Absolute M/L/Z commands with the element and group transforms already applied.</param>
 /// <param name="Relleno">Fill as written in the source (a color, or "none").</param>
-/// <param name="ReglaRelleno">"nonzero" for the first path, "evenodd" for the rest.</param>
+/// <param name="ReglaRelleno">"nonzero" or "evenodd", as chosen by the <see cref="PerfilRelleno"/>.</param>
 public sealed record TrazadoBambu(string D, string Relleno, string ReglaRelleno, string? Opacidad);
 
 /// <param name="Svg">The file to save, UTF-8 text with XML declaration.</param>
 /// <param name="VistaX">viewBox of the result (min-x, min-y, width, height), for drawing a preview.</param>
+/// <param name="Avisos">Things of the original that don't make it to the print (texts, images, clips…), for the user.</param>
 public sealed record ResultadoConversion(
     string Svg,
     IReadOnlyList<TrazadoBambu> Trazados,
     int Segmentos,
-    double VistaX, double VistaY, double VistaAncho, double VistaAlto);
+    double VistaX, double VistaY, double VistaAncho, double VistaAlto,
+    IReadOnlyList<string> Avisos);
 
 /// <summary>
 /// Rebuilds an SVG (typically exported from CorelDRAW) as a flat list of straight-segment paths: no groups, CSS
-/// classes or inherited styles, which is what Bambu Studio imports reliably. Same profile as the HTML tool V5:
-/// the first path is filled nonzero and the following ones evenodd (validated with the GymUP logo); sub-paths
-/// and the document size are kept.
+/// classes or inherited styles, which is what Bambu Studio imports reliably. With the default options it behaves
+/// like the HTML tool V5 (first path nonzero, the rest evenodd, validated with the GymUP logo); on top of that it
+/// converts basic shapes (rect, circle…), follows &lt;use&gt; references, and leaves out definitions and clip
+/// paths instead of printing them as shapes.
 /// </summary>
 public static partial class ConversorSvg
 {
     private static readonly XNamespace Svg = "http://www.w3.org/2000/svg";
+    private static readonly XNamespace XLink = "http://www.w3.org/1999/xlink";
     private static readonly string[] AtributosRaiz = ["width", "height", "viewBox", "preserveAspectRatio", "version"];
+
+    /// <summary>Elements that define things used elsewhere, or that aren't drawn: never printed as shapes.</summary>
+    private static readonly HashSet<string> NoSeDibujan =
+    [
+        "defs", "clipPath", "mask", "pattern", "symbol", "marker", "metadata", "title", "desc", "style", "script",
+        "linearGradient", "radialGradient", "filter", "foreignObject",
+    ];
+
+    /// <summary>Presentation attributes a group passes down to its shapes.</summary>
+    private static readonly string[] Heredables = ["fill", "fill-rule"];
 
     [GeneratedRegex(@"\.([-\w]+)\s*\{([^}]*)\}")]
     private static partial Regex ReglaCss();
@@ -40,12 +53,13 @@ public static partial class ConversorSvg
     public static string NombreSalida(string nombreOriginal) =>
         Path.GetFileNameWithoutExtension(nombreOriginal) + "_BAMBU.svg";
 
-    public static ResultadoConversion Convertir(string svg, double precision)
+    public static ResultadoConversion Convertir(string svg, double precision) => Convertir(svg, new OpcionesConversion(precision));
+
+    public static ResultadoConversion Convertir(string svg, OpcionesConversion opciones)
     {
+        if (!(opciones.Precision > 0)) throw new ArgumentOutOfRangeException(nameof(opciones), "La precisión tiene que ser mayor que cero.");
         var raiz = Cargar(svg).Root!;
         if (raiz.Name.LocalName != "svg") throw new SvgInvalidoException("El documento no contiene una raíz SVG.");
-        if (!raiz.Descendants(Svg + "path").Any())
-            throw new SvgInvalidoException("No encontré elementos path. Convertí los textos a curvas en CorelDRAW (Ctrl+Q) y exportá el SVG de nuevo.");
 
         // CorelDRAW writes the fills as classes in a <style> block: ".fil0 {fill:#373435}".
         var clases = new Dictionary<string, Dictionary<string, string>>();
@@ -56,6 +70,10 @@ public static partial class ConversorSvg
             foreach (var (k, v) in LeerEstilo(m.Groups[2].Value)) reglas[k] = v;
         }
 
+        var porId = new Dictionary<string, XElement>();
+        foreach (var e in raiz.DescendantsAndSelf())
+            if (e.Attribute("id")?.Value is { Length: > 0 } id) porId.TryAdd(id, e);
+
         var atributos = new List<XAttribute>();
         foreach (var nombre in AtributosRaiz)
             if (raiz.Attribute(nombre) is { } a) atributos.Add(new XAttribute(nombre, a.Value));
@@ -63,40 +81,104 @@ public static partial class ConversorSvg
         {
             var w = Positivo(Numeros.LeerPrefijo(raiz.Attribute("width")?.Value)) ?? 100;
             var h = Positivo(Numeros.LeerPrefijo(raiz.Attribute("height")?.Value)) ?? 100;
-            atributos.Insert(Math.Min(2, atributos.Count), new XAttribute("viewBox", $"0 0 {Numeros.Formatear(w)} {Numeros.Formatear(h)}"));
+            atributos.Add(new XAttribute("viewBox", $"0 0 {Numeros.Formatear(w)} {Numeros.Formatear(h)}"));
         }
 
         var trazados = new List<TrazadoBambu>();
         var segmentos = 0;
+        int textos = 0, imagenes = 0, soloContorno = 0, recortes = 0;
+        var enUso = new HashSet<XElement>(); // <use> chain being followed, to stop reference loops
 
-        void Recorrer(XElement el, Matriz padre, IReadOnlyDictionary<string, string> heredado)
+        Dictionary<string, string> Estilo(XElement el, IReadOnlyDictionary<string, string> heredado)
         {
             var propios = new Dictionary<string, string>(heredado);
+            foreach (var k in Heredables)
+                if (NoVacio(el.Attribute(k)?.Value) is { } v) propios[k] = v;
             foreach (var clase in Espacios().Split(el.Attribute("class")?.Value ?? "").Where(c => c.Length > 0))
                 if (clases.TryGetValue(clase, out var reglas))
                     foreach (var (k, v) in reglas) propios[k] = v;
             foreach (var (k, v) in LeerEstilo(el.Attribute("style")?.Value)) propios[k] = v;
+            return propios;
+        }
+
+        void Recorrer(XElement el, Matriz padre, IReadOnlyDictionary<string, string> heredado)
+        {
+            var nombre = el.Name.LocalName;
+            if (NoSeDibujan.Contains(nombre)) return;
+            if (nombre == "text") { textos++; return; }
+            if (nombre == "image") { imagenes++; return; }
+            if (nombre == "line") { soloContorno++; return; } // a line has no area to fill
+
+            var propios = Estilo(el, heredado);
+            // Counted on the element that clips; removed so its children don't count it again.
+            var enEstilo = propios.Remove("clip-path") | propios.Remove("mask");
+            if (enEstilo || el.Attribute("clip-path") is not null || el.Attribute("mask") is not null) recortes++;
             var m = padre * Matriz.Leer(el.Attribute("transform")?.Value);
 
-            if (el.Name.LocalName != "path")
+            if (nombre == "use")
+            {
+                var href = (el.Attribute(XLink + "href") ?? el.Attribute("href"))?.Value;
+                // A reference to itself or to a group containing it is circular: browsers draw nothing for it.
+                if (href is not { Length: > 1 } || href[0] != '#' || !porId.TryGetValue(href[1..], out var destino) ||
+                    el.AncestorsAndSelf().Contains(destino) || !enUso.Add(destino)) return;
+                var desplazada = m * new Matriz(1, 0, 0, 1, Numeros.LeerPrefijo(el.Attribute("x")?.Value) ?? 0, Numeros.LeerPrefijo(el.Attribute("y")?.Value) ?? 0);
+                if (destino.Name.LocalName == "symbol")
+                {
+                    var delSimbolo = Estilo(destino, propios);
+                    foreach (var hijo in destino.Elements()) Recorrer(hijo, desplazada, delSimbolo);
+                }
+                else Recorrer(destino, desplazada, propios);
+                enUso.Remove(destino);
+                return;
+            }
+
+            string? d;
+            if (nombre == "path") d = el.Attribute("d")?.Value;
+            else if (Formas.Nombres.Contains(nombre)) d = Formas.ComoTrazado(el);
+            else
             {
                 foreach (var hijo in el.Elements()) Recorrer(hijo, m, propios);
                 return;
             }
-
-            var d = el.Attribute("d")?.Value;
             if (string.IsNullOrEmpty(d)) return;
-            var lineal = Linealizador.Linealizar(d, precision);
+
+            var lineal = Linealizador.Linealizar(d, opciones.Precision);
             var relleno = NoVacio(el.Attribute("fill")?.Value) ?? NoVacio(propios.GetValueOrDefault("fill")) ?? "#000000";
             var opacidad = NoVacio(el.Attribute("opacity")?.Value) ?? NoVacio(propios.GetValueOrDefault("opacity"));
-            // GymUP profile: first path nonzero, the rest evenodd.
-            var regla = trazados.Count == 0 ? "nonzero" : "evenodd";
+            if (relleno.Equals("none", StringComparison.OrdinalIgnoreCase) &&
+                NoVacio(el.Attribute("stroke")?.Value ?? propios.GetValueOrDefault("stroke")) is { } trazo &&
+                !trazo.Equals("none", StringComparison.OrdinalIgnoreCase))
+                soloContorno++;
+
+            var regla = opciones.Perfil switch
+            {
+                PerfilRelleno.GymUp => trazados.Count == 0 ? "nonzero" : "evenodd",
+                PerfilRelleno.TodoNonzero => "nonzero",
+                PerfilRelleno.TodoEvenodd => "evenodd",
+                _ => (NoVacio(el.Attribute("fill-rule")?.Value) ?? propios.GetValueOrDefault("fill-rule")) == "evenodd" ? "evenodd" : "nonzero",
+            };
             trazados.Add(new TrazadoBambu(m.AplicarATrazado(lineal.D), relleno, regla, opacidad));
             segmentos += lineal.Segmentos;
         }
 
-        foreach (var hijo in raiz.Elements()) Recorrer(hijo, Matriz.Identidad, new Dictionary<string, string>());
-        if (trazados.Count == 0) throw new SvgInvalidoException("No se pudieron procesar los trazados del SVG.");
+        // The root's own style (CorelDRAW puts "fill-rule:evenodd" there) is inherited like a group's.
+        var deLaRaiz = Estilo(raiz, new Dictionary<string, string>());
+        foreach (var hijo in raiz.Elements()) Recorrer(hijo, Matriz.Identidad, deLaRaiz);
+
+        if (trazados.Count == 0)
+            throw new SvgInvalidoException(textos > 0
+                ? "El SVG solo tiene textos. Convertí los textos a curvas en CorelDRAW (Ctrl+Q) y exportá el SVG de nuevo."
+                : "No encontré formas para convertir. Convertí los textos a curvas en CorelDRAW (Ctrl+Q) y exportá el SVG de nuevo.");
+
+        var avisos = new List<string>();
+        if (textos > 0)
+            avisos.Add($"{Cantidad(textos, "texto sin convertir a curvas quedó afuera", "textos sin convertir a curvas quedaron afuera")}. En CorelDRAW seleccioná todo y usá Ctrl+Q antes de exportar.");
+        if (imagenes > 0)
+            avisos.Add($"{Cantidad(imagenes, "imagen (bitmap) quedó afuera", "imágenes (bitmaps) quedaron afuera")}: no se pueden convertir en formas. Vectorizalas en CorelDRAW.");
+        if (soloContorno > 0)
+            avisos.Add($"{Cantidad(soloContorno, "forma tiene", "formas tienen")} solo contorno, sin relleno: en Bambu no van a tener volumen. En CorelDRAW convertí el contorno en objeto (Ctrl+Mayús+Q).");
+        if (recortes > 0)
+            avisos.Add($"El diseño usa {Cantidad(recortes, "recorte", "recortes")} (PowerClip o máscara): se ignoran, así que lo recortado aparece completo. Revisá el resultado.");
 
         var nuevo = new XElement(Svg + "svg", atributos);
         foreach (var t in trazados)
@@ -109,8 +191,10 @@ public static partial class ConversorSvg
 
         var vista = LeerVista(nuevo.Attribute("viewBox")!.Value);
         var texto = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + nuevo.ToString().Replace("\r\n", "\n") + "\n";
-        return new ResultadoConversion(texto, trazados, segmentos, vista[0], vista[1], vista[2], vista[3]);
+        return new ResultadoConversion(texto, trazados, segmentos, vista[0], vista[1], vista[2], vista[3], avisos);
     }
+
+    private static string Cantidad(int n, string singular, string plural) => n == 1 ? "1 " + singular : $"{n} {plural}";
 
     private static XDocument Cargar(string svg)
     {

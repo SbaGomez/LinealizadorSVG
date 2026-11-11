@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -14,16 +15,26 @@ namespace LinealizadorSVG.App.ViewModels;
 /// <summary>How long the straight segments are, in SVG units (the same choices as the HTML tool).</summary>
 public sealed record OpcionPrecision(double Valor, string Nombre);
 
+/// <summary>A fill rule profile as shown in the selector.</summary>
+public sealed record OpcionPerfil(PerfilRelleno Valor, string Nombre, string Descripcion);
+
 /// <summary>
-/// Loads an SVG (opened, dropped or passed on the command line), converts it as soon as it's loaded and every time
-/// the precision changes, shows a preview, and saves the result next to the original.
+/// Loads SVGs (opened, dropped, a whole folder or passed on the command line). One file is converted as soon as
+/// it's loaded and again whenever an option changes, with a preview, and saved where the user picks. Several files
+/// are a batch: each one is saved straight away as name_BAMBU.svg next to its original.
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
+    private static readonly CultureInfo Es = new("es-AR");
+
     private string? _texto;
     private int _version; // drops results of conversions overtaken by a newer one
 
-    public MainViewModel() => _precision = Precisiones[1];
+    public MainViewModel()
+    {
+        _precision = Precisiones[1];
+        _perfil = Perfiles[0];
+    }
 
     public IReadOnlyList<OpcionPrecision> Precisiones { get; } =
     [
@@ -33,7 +44,24 @@ public sealed partial class MainViewModel : ObservableObject
         new(1, "1,0 — más liviano"),
     ];
 
+    public IReadOnlyList<OpcionPerfil> Perfiles { get; } =
+    [
+        new(PerfilRelleno.GymUp, "Perfil GymUP — recomendado",
+            "El primer trazado se rellena con nonzero y los demás con evenodd: el perfil validado con el logo de GymUP."),
+        new(PerfilRelleno.Original, "Como viene en el archivo",
+            "Cada trazado conserva la regla que le puso CorelDRAW (nonzero si no tiene ninguna)."),
+        new(PerfilRelleno.TodoNonzero, "Todo nonzero",
+            "Rellena según el sentido de cada contorno: un contorno interior dibujado al revés queda hueco."),
+        new(PerfilRelleno.TodoEvenodd, "Todo evenodd",
+            "Alterna relleno y hueco en cada contorno anidado, sin importar el sentido."),
+    ];
+
     [ObservableProperty] private OpcionPrecision _precision;
+    [ObservableProperty] private OpcionPerfil _perfil;
+
+    private OpcionesConversion Opciones => new(Precision.Valor, Perfil.Valor);
+
+    // ---- One file ----
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(NombreArchivo))]
@@ -41,7 +69,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(GuardarCommand))]
-    [NotifyPropertyChangedFor(nameof(Resumen), nameof(HayResultado))]
+    [NotifyPropertyChangedFor(nameof(Resumen), nameof(HayResultado), nameof(Avisos))]
     private ResultadoConversion? _resultado;
 
     /// <summary>The converted paths drawn with their fills and fill rules: what Bambu Studio will see.</summary>
@@ -57,11 +85,39 @@ public sealed partial class MainViewModel : ObservableObject
 
     public string? NombreArchivo => Ruta is null ? null : Path.GetFileName(Ruta);
     public bool HayResultado => Resultado is not null;
+    public IReadOnlyList<string> Avisos => Resultado?.Avisos ?? [];
 
-    public string? Resumen => Resultado is not { } r ? null : string.Create(new CultureInfo("es-AR"),
-        $"{r.Trazados.Count:N0} trazados · {r.Segmentos:N0} segmentos rectos · {Encoding.UTF8.GetByteCount(r.Svg) / 1024.0:N0} KB");
+    public string? Resumen => Resultado is not { } r ? null : Resumir(r);
 
-    partial void OnPrecisionChanged(OpcionPrecision value) => _ = Convertir();
+    private static string Resumir(ResultadoConversion r) => string.Create(Es,
+        $"{r.Trazados.Count:N0} {(r.Trazados.Count == 1 ? "trazado" : "trazados")} · {r.Segmentos:N0} segmentos rectos · {Encoding.UTF8.GetByteCount(r.Svg) / 1024.0:N0} KB");
+
+    // ---- Batch ----
+
+    public ObservableCollection<ArchivoLote> Lote { get; } = [];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HayResultado))]
+    [NotifyCanExecuteChangedFor(nameof(RepetirLoteCommand))]
+    private bool _enLote;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RepetirLoteCommand))]
+    private bool _procesandoLote;
+
+    [ObservableProperty] private string? _resumenLote;
+
+    /// <summary>The options changed after the batch ran: its files don't reflect them until it's run again.</summary>
+    [ObservableProperty] private bool _loteDesactualizado;
+
+    partial void OnPrecisionChanged(OpcionPrecision value) => OpcionesCambiadas();
+    partial void OnPerfilChanged(OpcionPerfil value) => OpcionesCambiadas();
+
+    private void OpcionesCambiadas()
+    {
+        if (EnLote) LoteDesactualizado = Lote.Count > 0;
+        else _ = Convertir();
+    }
 
     [RelayCommand]
     private async Task AbrirArchivo()
@@ -69,13 +125,65 @@ public sealed partial class MainViewModel : ObservableObject
         var dialogo = new OpenFileDialog
         {
             Filter = "Archivos SVG|*.svg|Todos los archivos|*.*",
-            Title = "Elegí el SVG exportado de CorelDRAW",
+            Title = "Elegí el SVG exportado de CorelDRAW (o varios)",
+            Multiselect = true,
         };
-        if (dialogo.ShowDialog() == true) await CargarArchivo(dialogo.FileName);
+        if (dialogo.ShowDialog() == true) await CargarArchivos(dialogo.FileNames);
+    }
+
+    [RelayCommand]
+    private async Task ConvertirCarpeta()
+    {
+        var dialogo = new OpenFolderDialog { Title = "Elegí la carpeta con los SVG" };
+        if (dialogo.ShowDialog() == true) await CargarArchivos([dialogo.FolderName]);
+    }
+
+    /// <summary>Files and/or folders: one file opens on its own, anything more becomes a batch.</summary>
+    public async Task CargarArchivos(IReadOnlyList<string> rutas)
+    {
+        if (rutas is [var unica] && File.Exists(unica))
+        {
+            await CargarArchivo(unica);
+            return;
+        }
+
+        var archivos = new List<string>();
+        foreach (var ruta in rutas)
+        {
+            if (Directory.Exists(ruta)) archivos.AddRange(BuscarSvgs(ruta));
+            else if (Core.Lote.EsConvertible(ruta)) archivos.Add(ruta);
+        }
+        archivos = [.. archivos.Distinct(StringComparer.OrdinalIgnoreCase)];
+
+        if (archivos.Count == 0)
+        {
+            SalirDelLote();
+            MostrarError("No encontré archivos .svg para convertir (los _BAMBU.svg ya convertidos se saltean).");
+            return;
+        }
+        if (archivos.Count == 1)
+        {
+            await CargarArchivo(archivos[0]);
+            return;
+        }
+        await ConvertirLote(archivos);
+    }
+
+    private static IEnumerable<string> BuscarSvgs(string carpeta)
+    {
+        try
+        {
+            return Core.Lote.BuscarSvgs(carpeta);
+        }
+        catch (Exception)
+        {
+            return [];
+        }
     }
 
     public async Task CargarArchivo(string ruta)
     {
+        SalirDelLote();
         if (!ruta.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
         {
             MostrarError("Elegí un archivo .svg.");
@@ -97,9 +205,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async Task Convertir()
     {
-        if (_texto is not { } texto) return;
+        if (_texto is not { } texto || EnLote) return;
         var version = ++_version;
-        var precision = Precision.Valor;
+        var opciones = Opciones;
         Convirtiendo = true;
         Error = null;
         Estado = null;
@@ -107,7 +215,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             var (resultado, vista) = await Task.Run(() =>
             {
-                var r = ConversorSvg.Convertir(texto, precision);
+                var r = ConversorSvg.Convertir(texto, opciones);
                 return (r, Dibujar(r));
             });
             if (version != _version) return;
@@ -157,10 +265,73 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(PuedeAbrirCarpeta))]
     private void AbrirCarpeta()
     {
-        if (GuardadoEn is { } ruta) Process.Start("explorer.exe", $"/select,\"{ruta}\"");
+        if (GuardadoEn is { } ruta) MostrarEnCarpeta(ruta);
     }
 
     private bool PuedeAbrirCarpeta() => GuardadoEn is not null;
+
+    // ---- Batch ----
+
+    private async Task ConvertirLote(IReadOnlyList<string> archivos)
+    {
+        ++_version; // a single-file conversion still running must not show up over the batch
+        _texto = null;
+        Ruta = null;
+        Resultado = null;
+        Vista = null;
+        Error = null;
+        Estado = null;
+        GuardadoEn = null;
+        Convirtiendo = false;
+        EnLote = true;
+        Lote.Clear();
+        foreach (var a in archivos) Lote.Add(new ArchivoLote(a));
+        await ProcesarLote();
+    }
+
+    [RelayCommand(CanExecute = nameof(PuedeRepetirLote))]
+    private Task RepetirLote() => ProcesarLote();
+
+    private bool PuedeRepetirLote() => EnLote && !ProcesandoLote;
+
+    private async Task ProcesarLote()
+    {
+        ProcesandoLote = true;
+        LoteDesactualizado = false;
+        var opciones = Opciones;
+        foreach (var item in Lote) item.Reiniciar();
+        int bien = 0, conAvisos = 0, mal = 0;
+        foreach (var item in Lote)
+        {
+            ResumenLote = $"Convirtiendo {Lote.IndexOf(item) + 1} de {Lote.Count}…";
+            item.Estado = EstadoLote.Convirtiendo;
+            var r = await Task.Run(() => Core.Lote.ConvertirArchivo(item.Ruta, opciones));
+            item.Terminar(r, r.Resultado is { } res ? Resumir(res) : null);
+            if (r.Error is not null) mal++;
+            else if (r.Resultado!.Avisos.Count > 0) conAvisos++;
+            else bien++;
+        }
+        var partes = new List<string> { $"{bien + conAvisos} de {Lote.Count} convertidos" };
+        if (conAvisos > 0) partes.Add($"{conAvisos} con avisos");
+        if (mal > 0) partes.Add(mal == 1 ? "1 con error" : $"{mal} con error");
+        ResumenLote = string.Join(" · ", partes) + ". Cada uno quedó como _BAMBU.svg al lado de su original.";
+        ProcesandoLote = false;
+    }
+
+    [RelayCommand]
+    private void MostrarArchivoLote(ArchivoLote item) => MostrarEnCarpeta(item.Salida ?? item.Ruta);
+
+    private void SalirDelLote()
+    {
+        EnLote = false;
+        LoteDesactualizado = false;
+        ResumenLote = null;
+        Lote.Clear();
+    }
+
+    // ---- Helpers ----
+
+    private static void MostrarEnCarpeta(string ruta) => Process.Start("explorer.exe", $"/select,\"{ruta}\"");
 
     private void MostrarError(string mensaje)
     {
@@ -212,5 +383,45 @@ public sealed partial class MainViewModel : ObservableObject
             // Gradients (url(#…)) and other paints: draw them black, like the converted file's default.
         }
         return Brushes.Black;
+    }
+}
+
+public enum EstadoLote { Pendiente, Convirtiendo, Listo, ConAvisos, Error }
+
+/// <summary>One file of a batch and how its conversion went.</summary>
+public sealed partial class ArchivoLote(string ruta) : ObservableObject
+{
+    public string Ruta { get; } = ruta;
+    public string Nombre { get; } = Path.GetFileName(ruta);
+
+    [ObservableProperty] private EstadoLote _estado;
+    [ObservableProperty] private string? _detalle;
+    [ObservableProperty] private string? _salida;
+
+    public void Reiniciar()
+    {
+        Estado = EstadoLote.Pendiente;
+        Detalle = "En espera";
+        Salida = null;
+    }
+
+    public void Terminar(ResultadoArchivo r, string? resumen)
+    {
+        Salida = r.Salida;
+        if (r.Error is { } error)
+        {
+            Estado = EstadoLote.Error;
+            Detalle = error;
+        }
+        else if (r.Resultado!.Avisos.Count > 0)
+        {
+            Estado = EstadoLote.ConAvisos;
+            Detalle = resumen + "\n" + string.Join("\n", r.Resultado.Avisos);
+        }
+        else
+        {
+            Estado = EstadoLote.Listo;
+            Detalle = resumen;
+        }
     }
 }

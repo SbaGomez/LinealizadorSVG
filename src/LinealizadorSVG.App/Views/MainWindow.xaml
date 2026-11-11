@@ -79,48 +79,61 @@
         </Border>
 
         <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="32,28,32,24" MaxWidth="820" HorizontalAlignment="Stretch">
+            <StackPanel Margin="32,28,32,24" MaxWidth="860" HorizontalAlignment="Stretch">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE8A1;" FontFamily="{StaticResource Iconos}" FontSize="22"
                                Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" Margin="0,2,12,0"/>
                     <TextBlock Text="SVG para Bambu Studio" Style="{StaticResource PageTitle}"/>
                 </StackPanel>
                 <TextBlock Style="{StaticResource Descripcion}"
-                           Text="Convierte las curvas en segmentos rectos y reconstruye el SVG limpio: sin grupos, CSS ni estilos heredados de CorelDRAW. Conserva los subcontornos y las medidas. Regla de relleno por orden: el primer trazado nonzero y los siguientes evenodd (el perfil validado con el logo de GymUP)."/>
+                           Text="Convierte las curvas en segmentos rectos y reconstruye el SVG limpio: sin grupos, CSS ni estilos heredados de CorelDRAW. Conserva los subcontornos y las medidas, y te avisa de lo que no se va a imprimir."/>
 
                 <Grid Margin="0,0,0,18">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="24"/>
-                        <ColumnDefinition Width="240"/>
+                        <ColumnDefinition Width="260"/>
                     </Grid.ColumnDefinitions>
-                <!-- Drop zone -->
-                <Grid MinHeight="130">
-                    <Rectangle x:Name="Zona" RadiusX="10" RadiusY="10" StrokeThickness="2" StrokeDashArray="5 3"
-                               Stroke="{StaticResource InputBorderBrush}" Fill="{StaticResource SidebarBrush}"/>
-                    <StackPanel Margin="20" VerticalAlignment="Center" HorizontalAlignment="Center">
-                        <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource Iconos}" FontSize="30" HorizontalAlignment="Center"
-                                   Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,8"/>
-                        <TextBlock HorizontalAlignment="Center" FontSize="14" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12"
-                                   Text="Arrastrá tu SVG acá, o"/>
-                        <Button Style="{StaticResource PrimaryButton}" Command="{Binding AbrirArchivoCommand}" HorizontalAlignment="Center">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource Iconos}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBlock Text="Abrir SVG (Ctrl+O)"/>
-                            </StackPanel>
-                        </Button>
-                        <TextBlock HorizontalAlignment="Center" FontSize="12.5" Margin="0,10,0,0" FontWeight="SemiBold"
-                                   Foreground="{StaticResource TextBrush}" Text="{Binding NombreArchivo}"
-                                   Tag="{Binding NombreArchivo}" Style="{StaticResource OcultoSiNulo}"/>
-                    </StackPanel>
-                </Grid>
 
-                <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                    <TextBlock Text="Precisión de linealización" Style="{StaticResource InputLabel}"/>
-                    <ComboBox ItemsSource="{Binding Precisiones}" SelectedItem="{Binding Precision}" DisplayMemberPath="Nombre"/>
-                    <TextBlock Style="{StaticResource Hint}" Margin="0,-6,0,0"
-                               Text="Largo máximo de cada segmento recto, en unidades del SVG. Más chico es más fiel a la curva pero el archivo pesa más."/>
-                </StackPanel>
+                    <!-- Drop zone -->
+                    <Grid MinHeight="150">
+                        <Rectangle x:Name="Zona" RadiusX="10" RadiusY="10" StrokeThickness="2" StrokeDashArray="5 3"
+                                   Stroke="{StaticResource InputBorderBrush}" Fill="{StaticResource SidebarBrush}"/>
+                        <StackPanel Margin="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+                            <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource Iconos}" FontSize="30" HorizontalAlignment="Center"
+                                       Foreground="{StaticResource MutedTextBrush}" Margin="0,0,0,8"/>
+                            <TextBlock HorizontalAlignment="Center" FontSize="14" Foreground="{StaticResource TextBrush}" Margin="0,0,0,12"
+                                       TextAlignment="Center" TextWrapping="Wrap" Text="Arrastrá tu SVG acá (o varios, o una carpeta entera)"/>
+                            <WrapPanel HorizontalAlignment="Center">
+                                <Button Style="{StaticResource PrimaryButton}" Command="{Binding AbrirArchivoCommand}" Margin="5,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE8E5;" FontFamily="{StaticResource Iconos}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Abrir SVG (Ctrl+O)"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource SecondaryButton}" Command="{Binding ConvertirCarpetaCommand}" Margin="5,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="&#xE8B7;" FontFamily="{StaticResource Iconos}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock Text="Convertir carpeta…"/>
+                                    </StackPanel>
+                                </Button>
+                            </WrapPanel>
+                            <TextBlock HorizontalAlignment="Center" FontSize="12.5" Margin="0,10,0,0" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" Text="{Binding NombreArchivo}"
+                                       Tag="{Binding NombreArchivo}" Style="{StaticResource OcultoSiNulo}"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- Options -->
+                    <StackPanel Grid.Column="2" VerticalAlignment="Top">
+                        <TextBlock Text="Precisión de linealización" Style="{StaticResource InputLabel}"/>
+                        <ComboBox ItemsSource="{Binding Precisiones}" SelectedItem="{Binding Precision}" DisplayMemberPath="Nombre"/>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,-8,0,12"
+                                   Text="Largo de cada segmento recto, en unidades del SVG. Más chico es más fiel a la curva pero el archivo pesa más."/>
+                        <TextBlock Text="Regla de relleno" Style="{StaticResource InputLabel}"/>
+                        <ComboBox ItemsSource="{Binding Perfiles}" SelectedItem="{Binding Perfil}" DisplayMemberPath="Nombre"/>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0,-8,0,0" Text="{Binding Perfil.Descripcion}"/>
+                    </StackPanel>
                 </Grid>
 
                 <Border Padding="14" CornerRadius="8" Background="#FBEAEA" BorderBrush="#F2C4C4" BorderThickness="1" Margin="0,0,0,14"
@@ -128,7 +141,7 @@
                     <TextBlock Text="{Binding Error}" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" FontSize="13.5"/>
                 </Border>
 
-                <!-- Result -->
+                <!-- One file -->
                 <Border Style="{StaticResource Tarjeta}" Visibility="{Binding HayResultado, Converter={StaticResource BoolToVisibility}}">
                     <StackPanel>
                         <Grid Margin="0,0,0,12">
@@ -181,11 +194,124 @@
                         <TextBlock Text="{Binding Estado}" Foreground="{StaticResource SuccessBrush}" FontSize="12.5" Margin="0,-4,0,12"
                                    TextWrapping="Wrap" Tag="{Binding Estado}" Style="{StaticResource OcultoSiNulo}"/>
 
+                        <!-- Warnings: what won't be printed -->
+                        <Border Padding="14,12" CornerRadius="8" BorderThickness="1" Margin="0,0,0,12"
+                                Background="{StaticResource AvisoFondoBrush}" BorderBrush="{StaticResource AvisoBordeBrush}">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Avisos.Count}" Value="0">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <ItemsControl ItemsSource="{Binding Avisos}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource Iconos}" FontSize="14" Margin="0,2,10,0"
+                                                       Foreground="{StaticResource AvisoTextoBrush}" VerticalAlignment="Top"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding}" TextWrapping="Wrap" FontSize="13"
+                                                       Foreground="{StaticResource AvisoTextoBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Border>
+
                         <Border Background="{StaticResource DeskBrush}" CornerRadius="8" Padding="16" Height="380">
-                            <Image Source="{Binding Vista}" Stretch="Uniform" RenderOptions.EdgeMode="Unspecified"/>
+                            <Image Source="{Binding Vista}" Stretch="Uniform"/>
                         </Border>
                         <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
-                                   Text="Así queda con sus rellenos: si un hueco aparece tapado o una parte vacía, revisalo antes de imprimir."/>
+                                   Text="Así queda con sus rellenos: si un hueco aparece tapado o una parte vacía, probá otra regla de relleno antes de imprimir."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Batch -->
+                <Border Style="{StaticResource Tarjeta}" Visibility="{Binding EnLote, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource SectionTitle}" Margin="0,0,0,2">
+                                    <Run Text="Varios archivos:"/>
+                                    <Run Text="{Binding Lote.Count, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Text="{Binding ResumenLote}" FontSize="13" Foreground="{StaticResource MutedTextBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                            <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Command="{Binding RepetirLoteCommand}" VerticalAlignment="Center"
+                                    Margin="12,0,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE72C;" FontFamily="{StaticResource Iconos}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="Convertir de nuevo"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+
+                        <Border Padding="12,10" CornerRadius="8" BorderThickness="1" Margin="0,0,0,12"
+                                Background="{StaticResource AvisoFondoBrush}" BorderBrush="{StaticResource AvisoBordeBrush}"
+                                Visibility="{Binding LoteDesactualizado, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Foreground="{StaticResource AvisoTextoBrush}" FontSize="13" TextWrapping="Wrap"
+                                       Text="Cambiaste las opciones: tocá «Convertir de nuevo» para volver a generar los archivos con ellas."/>
+                        </Border>
+
+                        <ItemsControl ItemsSource="{Binding Lote}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{StaticResource SubtleBorderBrush}" BorderThickness="0,1,0,0" Padding="0,10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock x:Name="Icono" Text="&#xE823;" FontFamily="{StaticResource Iconos}" FontSize="18"
+                                                       Foreground="{StaticResource MutedTextBrush}" VerticalAlignment="Top" Margin="0,1,12,0"/>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding Nombre}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock x:Name="Detalle" Text="{Binding Detalle}" FontSize="12.5" TextWrapping="Wrap"
+                                                           Foreground="{StaticResource MutedTextBrush}" Margin="0,2,0,0"/>
+                                            </StackPanel>
+                                            <Button x:Name="Mostrar" Grid.Column="2" Style="{StaticResource SecondaryButton}" VerticalAlignment="Top"
+                                                    Margin="12,0,0,0" MinHeight="32" Visibility="Collapsed"
+                                                    Command="{Binding DataContext.MostrarArchivoLoteCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                    CommandParameter="{Binding}" Content="Mostrar"/>
+                                        </Grid>
+                                    </Border>
+                                    <DataTemplate.Triggers>
+                                        <DataTrigger Binding="{Binding Estado}" Value="Convirtiendo">
+                                            <Setter TargetName="Icono" Property="Text" Value="&#xE895;"/>
+                                            <Setter TargetName="Icono" Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Estado}" Value="Listo">
+                                            <Setter TargetName="Icono" Property="Text" Value="&#xE930;"/>
+                                            <Setter TargetName="Icono" Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                            <Setter TargetName="Mostrar" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Estado}" Value="ConAvisos">
+                                            <Setter TargetName="Icono" Property="Text" Value="&#xE7BA;"/>
+                                            <Setter TargetName="Icono" Property="Foreground" Value="{StaticResource AvisoTextoBrush}"/>
+                                            <Setter TargetName="Detalle" Property="Foreground" Value="{StaticResource AvisoTextoBrush}"/>
+                                            <Setter TargetName="Mostrar" Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Estado}" Value="Error">
+                                            <Setter TargetName="Icono" Property="Text" Value="&#xEA39;"/>
+                                            <Setter TargetName="Icono" Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                            <Setter TargetName="Detalle" Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                        </DataTrigger>
+                                    </DataTemplate.Triggers>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </Border>
             </StackPanel>
