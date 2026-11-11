@@ -1,0 +1,9 @@
+﻿<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LinealizadorSVG.App/LinealizadorSVG.App.csproj" DefaultStartup="true" />
+    <Project Path="src/LinealizadorSVG.Core/LinealizadorSVG.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LinealizadorSVG.Core.Tests/LinealizadorSVG.Core.Tests.csproj" />
+  </Folder>
+</Solution>
