@@ -9,7 +9,7 @@
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![WPF](https://img.shields.io/badge/UI-WPF-1565C0)
-![Tests](https://img.shields.io/badge/tests-50%20passing-2E7D32)
+![Tests](https://img.shields.io/badge/tests-56%20passing-2E7D32)
 ![Bambu Studio](https://img.shields.io/badge/Bambu%20Studio-listo-00AE42)
 
 </div>
@@ -38,6 +38,7 @@ Esta app reconstruye el archivo como Bambu lo entiende mejor: **solo trazados co
 | 🔷 **Formas nativas** | Rectángulos (también redondeados), círculos, elipses y polígonos que CorelDRAW exporta como tales se convierten igual que los trazados |
 | 🔄 **Aplica las transformaciones** | `translate`, `scale`, `rotate`, `skew` y `matrix` de los grupos quedan aplicadas a las coordenadas. Los símbolos reutilizados (`<use>`) se dibujan donde se usan |
 | 📏 **Mismas medidas** | Conserva `width`, `height` y `viewBox`; si falta el `viewBox`, lo arma con el tamaño |
+| 🧩 **Separa las piezas** | Si un trazado trae varias piezas sueltas (por ejemplo, todas las letras de un texto), cada una sale en su propio trazado con sus huecos: Bambu arma una sola pieza por trazado y si no, las rompe. Los huecos que giran igual que su contorno se dan vuelta para que sigan siendo huecos |
 | 🛟 **Nunca toca el original** | Guarda una copia aparte, `diseño_BAMBU.svg`, en la misma carpeta |
 
 ### Rellenos y huecos

@@ -171,16 +171,20 @@ public static partial class ConversorSvg
                 !trazo.Equals("none", StringComparison.OrdinalIgnoreCase))
                 soloContorno++;
 
-            var regla = opciones.Perfil switch
-            {
-                PerfilRelleno.GymUp => trazados.Count == 0 ? "nonzero" : "evenodd",
-                PerfilRelleno.TodoNonzero => "nonzero",
-                PerfilRelleno.TodoEvenodd => "evenodd",
-                _ => (NoVacio(el.Attribute("fill-rule")?.Value) ?? propios.GetValueOrDefault("fill-rule")) == "evenodd" ? "evenodd" : "nonzero",
-            };
             var final = m.AplicarATrazado(lineal.D);
             var enRiesgo = comoBambu && Curvas().IsMatch(d) && PiezasSeparadas(final) > 1;
-            trazados.Add(new TrazadoBambu(final, relleno, regla, opacidad, enRiesgo));
+            // Bambu builds one face per path: each separate piece goes in a path of its own, with its holes.
+            foreach (var pieza in comoBambu ? new[] { final } : SepararPiezas(final))
+            {
+                var regla = opciones.Perfil switch
+                {
+                    PerfilRelleno.GymUp => trazados.Count == 0 ? "nonzero" : "evenodd",
+                    PerfilRelleno.TodoNonzero => "nonzero",
+                    PerfilRelleno.TodoEvenodd => "evenodd",
+                    _ => (NoVacio(el.Attribute("fill-rule")?.Value) ?? propios.GetValueOrDefault("fill-rule")) == "evenodd" ? "evenodd" : "nonzero",
+                };
+                trazados.Add(new TrazadoBambu(pieza, relleno, regla, opacidad, enRiesgo));
+            }
             segmentos += lineal.Segmentos;
         }
 
@@ -234,6 +238,76 @@ public static partial class ConversorSvg
         if (contornos.Count < 2) return contornos.Count;
         var mayor = contornos.MaxBy(c => Math.Abs(Area(c)))!;
         return 1 + contornos.Count(c => c != mayor && !Adentro(c[0], mayor));
+    }
+
+    /// <summary>
+    /// Splits a straight-segment path into its pieces, the way the original is drawn with evenodd: each outline
+    /// inside an even number of others starts a piece, and the outlines right inside it are its holes. Bambu
+    /// Studio ignores the fill rule and takes the biggest outline of a path as the piece and all the rest as holes,
+    /// so a path with several pieces comes out broken. A hole turning the same way as its piece is reversed, so
+    /// nonzero shows it as a hole too, as Bambu does. A path that is already one well-oriented piece is returned
+    /// as is.
+    /// </summary>
+    internal static IReadOnlyList<string> SepararPiezas(string dLineal)
+    {
+        var textos = dLineal.Split('M', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => t.Trim()).Where(t => t.Length > 0).ToList();
+        if (textos.Count < 2) return [dLineal];
+
+        var puntos = textos.Select(t =>
+        {
+            var n = Numeros.Numero().Matches(t).Select(x => Numeros.Leer(x.Value)).ToArray();
+            var p = new List<(double X, double Y)>();
+            for (var i = 0; i + 1 < n.Length; i += 2) p.Add((n[i], n[i + 1]));
+            return p;
+        }).ToList();
+        var areas = puntos.Select(p => p.Count >= 3 ? Area(p) : 0).ToArray();
+
+        // The parent of an outline is the smallest one containing most of its points; outlines with no area
+        // (a stray "M x,y") can't contain anything and stay with the first piece.
+        var padre = new int[textos.Count];
+        for (var i = 0; i < textos.Count; i++)
+        {
+            padre[i] = -1;
+            if (areas[i] == 0) continue;
+            for (var j = 0; j < textos.Count; j++)
+            {
+                if (j == i || Math.Abs(areas[j]) <= Math.Abs(areas[i]) || (padre[i] >= 0 && Math.Abs(areas[j]) >= Math.Abs(areas[padre[i]])))
+                    continue;
+                if (puntos[i].Count(q => Adentro(q, puntos[j])) * 2 > puntos[i].Count) padre[i] = j;
+            }
+        }
+
+        int Profundidad(int i) => padre[i] < 0 ? 0 : 1 + Profundidad(padre[i]);
+        var pieza = new int[textos.Count]; // index of the outline that starts the piece each outline belongs to
+        var cambio = false;
+        for (var i = 0; i < textos.Count; i++)
+        {
+            if (areas[i] == 0) { pieza[i] = -1; continue; }
+            pieza[i] = Profundidad(i) % 2 == 0 ? i : padre[i];
+            cambio |= pieza[i] != i && Math.Sign(areas[i]) == Math.Sign(areas[pieza[i]]);
+        }
+        var inicios = Enumerable.Range(0, textos.Count).Where(i => pieza[i] == i).ToList();
+        if (inicios.Count == 0) return [dLineal];
+        if (inicios.Count == 1 && !cambio) return [dLineal];
+        for (var i = 0; i < textos.Count; i++) if (pieza[i] < 0) pieza[i] = inicios[0];
+
+        string Texto(int i)
+        {
+            if (pieza[i] == i || Math.Sign(areas[i]) != Math.Sign(areas[pieza[i]])) return "M" + textos[i];
+            var p = puntos[i];
+            var sb = new System.Text.StringBuilder("M");
+            for (var k = p.Count - 1; k >= 0; k--)
+            {
+                if (k < p.Count - 1) sb.Append(" L");
+                sb.Append(Numeros.Formatear(p[k].X)).Append(',').Append(Numeros.Formatear(p[k].Y));
+            }
+            if (textos[i].EndsWith('Z') || textos[i].EndsWith('z')) sb.Append(" Z");
+            return sb.ToString();
+        }
+
+        return [.. inicios.Select(inicio => string.Join(" ",
+            Enumerable.Range(0, textos.Count).Where(i => pieza[i] == inicio).Select(Texto)))];
     }
 
     private static double Area(List<(double X, double Y)> p)
