@@ -75,6 +75,12 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The converted paths drawn with their fills and fill rules: what Bambu Studio will see.</summary>
     [ObservableProperty] private DrawingImage? _vista;
 
+    /// <summary>The original file with the paths Bambu Studio is likely to break in red, to compare with <see cref="Vista"/>.</summary>
+    [ObservableProperty] private DrawingImage? _vistaSinConvertir;
+
+    /// <summary>What's wrong with the original in Bambu, under <see cref="VistaSinConvertir"/>.</summary>
+    [ObservableProperty] private string? _riesgoSinConvertir;
+
     [ObservableProperty] private bool _convirtiendo;
     [ObservableProperty] private string? _error;
     [ObservableProperty] private string? _estado;
@@ -213,14 +219,17 @@ public sealed partial class MainViewModel : ObservableObject
         Estado = null;
         try
         {
-            var (resultado, vista) = await Task.Run(() =>
+            var (resultado, vista, original, sinConvertir) = await Task.Run(() =>
             {
                 var r = ConversorSvg.Convertir(texto, opciones);
-                return (r, Dibujar(r));
+                var o = ConversorSvg.SimularSinConvertir(texto, opciones.Precision);
+                return (r, Dibujar(r), o, Dibujar(o));
             });
             if (version != _version) return;
             Resultado = resultado;
             Vista = vista;
+            VistaSinConvertir = sinConvertir;
+            RiesgoSinConvertir = DescribirRiesgo(original);
         }
         catch (SvgInvalidoException e)
         {
@@ -279,6 +288,8 @@ public sealed partial class MainViewModel : ObservableObject
         Ruta = null;
         Resultado = null;
         Vista = null;
+        VistaSinConvertir = null;
+        RiesgoSinConvertir = null;
         Error = null;
         Estado = null;
         GuardadoEn = null;
@@ -337,6 +348,8 @@ public sealed partial class MainViewModel : ObservableObject
     {
         Resultado = null;
         Vista = null;
+        VistaSinConvertir = null;
+        RiesgoSinConvertir = null;
         Estado = null;
         Error = mensaje;
     }
@@ -350,6 +363,7 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (var t in r.Trazados)
         {
             if (Pincel(t.Relleno) is not { } pincel) continue;
+            if (t.EnRiesgo) pincel = EnRiesgo;
             // "F1" = nonzero, "F0" = evenodd in WPF's path mini-language.
             var geometria = Geometry.Parse((t.ReglaRelleno == "nonzero" ? "F1 " : "F0 ") + t.D);
             var dibujo = new GeometryDrawing(pincel, null, geometria);
@@ -365,6 +379,24 @@ public sealed partial class MainViewModel : ObservableObject
         var imagen = new DrawingImage(grupo);
         imagen.Freeze();
         return imagen;
+    }
+
+    private static readonly SolidColorBrush EnRiesgo = Congelado(Color.FromRgb(0xD6, 0x45, 0x45));
+
+    private static SolidColorBrush Congelado(Color c)
+    {
+        var b = new SolidColorBrush(c);
+        b.Freeze();
+        return b;
+    }
+
+    private static string DescribirRiesgo(ResultadoConversion original)
+    {
+        var n = original.Trazados.Count(t => t.EnRiesgo);
+        return n == 0
+            ? "No veo trazados que Bambu suela romper, pero las curvas sin convertir pueden salir con menos detalle."
+            : (n == 1 ? "En rojo, un trazado" : $"En rojo, {n} trazados") +
+              " con curvas y varias piezas separadas: Bambu arma cada trazado como una sola pieza y las demás como huecos, así que esas partes suelen salir deformadas (por ejemplo, letras convertidas en cuadrados).";
     }
 
     private static Brush? Pincel(string relleno)

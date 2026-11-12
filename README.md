@@ -9,7 +9,7 @@
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6?logo=windows&logoColor=white)
 ![.NET](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
 ![WPF](https://img.shields.io/badge/UI-WPF-1565C0)
-![Tests](https://img.shields.io/badge/tests-47%20passing-2E7D32)
+![Tests](https://img.shields.io/badge/tests-50%20passing-2E7D32)
 ![Bambu Studio](https://img.shields.io/badge/Bambu%20Studio-listo-00AE42)
 
 </div>
@@ -49,7 +49,7 @@ Esta app reconstruye el archivo como Bambu lo entiende mejor: **solo trazados co
 | ➰ **Todo nonzero** | Rellena según el sentido de cada contorno |
 | ◐ **Todo evenodd** | Alterna relleno y hueco en cada contorno anidado |
 
-La 👀 **vista previa** muestra el resultado con sus rellenos: si un hueco aparece tapado, probás otra regla y ves el cambio al instante.
+La 👀 **vista previa** compara lado a lado el **original sin convertir**, con los trazados que Bambu suele romper marcados en rojo (curvas más varias piezas separadas en un mismo trazado: el importador de Bambu arma la más grande y trata las demás como huecos, y salen deformadas), y cómo queda **convertido**, con sus rellenos: si un hueco aparece tapado, probás otra regla y ves el cambio al instante.
 
 ### Avisos: lo que no se va a imprimir
 

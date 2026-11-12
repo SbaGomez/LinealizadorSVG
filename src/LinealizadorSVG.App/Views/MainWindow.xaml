@@ -224,11 +224,40 @@
                             </ItemsControl>
                         </Border>
 
-                        <Border Background="{StaticResource DeskBrush}" CornerRadius="8" Padding="16" Height="380">
-                            <Image Source="{Binding Vista}" Stretch="Uniform"/>
-                        </Border>
+                        <!-- Before / after: the original as Bambu reads it, and the converted file -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="14"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource Iconos}" FontSize="14" VerticalAlignment="Center"
+                                               Foreground="{StaticResource ErrorBrush}" Margin="0,1,8,0"/>
+                                    <TextBlock Text="Original sin convertir: riesgo en Bambu" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                </StackPanel>
+                                <Border Background="{StaticResource DeskBrush}" CornerRadius="8" Padding="14" Height="300"
+                                        BorderBrush="#F2C4C4" BorderThickness="1">
+                                    <Image Source="{Binding VistaSinConvertir}" Stretch="Uniform"/>
+                                </Border>
+                                <TextBlock Text="{Binding RiesgoSinConvertir}" Foreground="{StaticResource ErrorBrush}" FontSize="12.5"
+                                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="&#xE930;" FontFamily="{StaticResource Iconos}" FontSize="14" VerticalAlignment="Center"
+                                               Foreground="{StaticResource SuccessBrush}" Margin="0,1,8,0"/>
+                                    <TextBlock Text="En Bambu, convertido" FontSize="13.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"/>
+                                </StackPanel>
+                                <Border Background="{StaticResource DeskBrush}" CornerRadius="8" Padding="14" Height="300"
+                                        BorderBrush="{StaticResource SubtleBorderBrush}" BorderThickness="1">
+                                    <Image Source="{Binding Vista}" Stretch="Uniform"/>
+                                </Border>
+                            </StackPanel>
+                        </Grid>
                         <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
-                                   Text="Así queda con sus rellenos: si un hueco aparece tapado o una parte vacía, probá otra regla de relleno antes de imprimir."/>
+                                   Text="A la derecha, el convertido con sus rellenos: si un hueco aparece tapado o una parte vacía, probá otra regla de relleno antes de imprimir."/>
                     </StackPanel>
                 </Border>
 

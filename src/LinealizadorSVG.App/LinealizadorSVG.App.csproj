@@ -8,7 +8,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>LinealizadorSVG</AssemblyName>
     <RootNamespace>LinealizadorSVG.App</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- Shown in the exe's Properties > Details. -->
     <Authors>Sebastian Gomez</Authors>
     <Company>Sebastian Gomez</Company>

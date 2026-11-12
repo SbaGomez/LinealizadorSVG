@@ -8,7 +8,11 @@ namespace LinealizadorSVG.Core;
 /// <param name="D">Absolute M/L/Z commands with the element and group transforms already applied.</param>
 /// <param name="Relleno">Fill as written in the source (a color, or "none").</param>
 /// <param name="ReglaRelleno">"nonzero" or "evenodd", as chosen by the <see cref="PerfilRelleno"/>.</param>
-public sealed record TrazadoBambu(string D, string Relleno, string ReglaRelleno, string? Opacidad);
+/// <param name="EnRiesgo">
+/// Only in <see cref="ConversorSvg.SimularSinConvertir"/>: the original path has curves and several separate pieces,
+/// the combination Bambu Studio's importer tends to break when it isn't converted.
+/// </param>
+public sealed record TrazadoBambu(string D, string Relleno, string ReglaRelleno, string? Opacidad, bool EnRiesgo = false);
 
 /// <param name="Svg">The file to save, UTF-8 text with XML declaration.</param>
 /// <param name="VistaX">viewBox of the result (min-x, min-y, width, height), for drawing a preview.</param>
@@ -46,6 +50,9 @@ public static partial class ConversorSvg
     [GeneratedRegex(@"\.([-\w]+)\s*\{([^}]*)\}")]
     private static partial Regex ReglaCss();
 
+    [GeneratedRegex("[CcSsQqTtAa]")]
+    private static partial Regex Curvas();
+
     [GeneratedRegex(@"\s+")]
     private static partial Regex Espacios();
 
@@ -55,7 +62,20 @@ public static partial class ConversorSvg
 
     public static ResultadoConversion Convertir(string svg, double precision) => Convertir(svg, new OpcionesConversion(precision));
 
-    public static ResultadoConversion Convertir(string svg, OpcionesConversion opciones)
+    public static ResultadoConversion Convertir(string svg, OpcionesConversion opciones) => Convertir(svg, opciones, comoBambu: false);
+
+    /// <summary>
+    /// The original file, for comparing with the conversion: each path with its own fill rule, flagged
+    /// <see cref="TrazadoBambu.EnRiesgo"/> when Bambu Studio is likely to break it. Bambu's importer ignores the fill
+    /// rule, takes the biggest outline of each path as the piece and every other outline as a hole, and builds the
+    /// face from the curves' sampled points: a path with curves and pieces outside its biggest one comes out
+    /// deformed (letters turned into boxes). &lt;use&gt; references are left out, as Bambu's SVG reader doesn't
+    /// follow them. Never throws for an SVG without shapes: the result just has no paths.
+    /// </summary>
+    public static ResultadoConversion SimularSinConvertir(string svg, double precision = 0.5) =>
+        Convertir(svg, new OpcionesConversion(precision, PerfilRelleno.Original), comoBambu: true);
+
+    private static ResultadoConversion Convertir(string svg, OpcionesConversion opciones, bool comoBambu)
     {
         if (!(opciones.Precision > 0)) throw new ArgumentOutOfRangeException(nameof(opciones), "La precisión tiene que ser mayor que cero.");
         var raiz = Cargar(svg).Root!;
@@ -117,6 +137,7 @@ public static partial class ConversorSvg
 
             if (nombre == "use")
             {
+                if (comoBambu) return; // nanosvg, Bambu's SVG reader, doesn't follow references
                 var href = (el.Attribute(XLink + "href") ?? el.Attribute("href"))?.Value;
                 // A reference to itself or to a group containing it is circular: browsers draw nothing for it.
                 if (href is not { Length: > 1 } || href[0] != '#' || !porId.TryGetValue(href[1..], out var destino) ||
@@ -157,7 +178,9 @@ public static partial class ConversorSvg
                 PerfilRelleno.TodoEvenodd => "evenodd",
                 _ => (NoVacio(el.Attribute("fill-rule")?.Value) ?? propios.GetValueOrDefault("fill-rule")) == "evenodd" ? "evenodd" : "nonzero",
             };
-            trazados.Add(new TrazadoBambu(m.AplicarATrazado(lineal.D), relleno, regla, opacidad));
+            var final = m.AplicarATrazado(lineal.D);
+            var enRiesgo = comoBambu && Curvas().IsMatch(d) && PiezasSeparadas(final) > 1;
+            trazados.Add(new TrazadoBambu(final, relleno, regla, opacidad, enRiesgo));
             segmentos += lineal.Segmentos;
         }
 
@@ -165,7 +188,7 @@ public static partial class ConversorSvg
         var deLaRaiz = Estilo(raiz, new Dictionary<string, string>());
         foreach (var hijo in raiz.Elements()) Recorrer(hijo, Matriz.Identidad, deLaRaiz);
 
-        if (trazados.Count == 0)
+        if (trazados.Count == 0 && !comoBambu)
             throw new SvgInvalidoException(textos > 0
                 ? "El SVG solo tiene textos. Convertí los textos a curvas en CorelDRAW (Ctrl+Q) y exportá el SVG de nuevo."
                 : "No encontré formas para convertir. Convertí los textos a curvas en CorelDRAW (Ctrl+Q) y exportá el SVG de nuevo.");
@@ -192,6 +215,41 @@ public static partial class ConversorSvg
         var vista = LeerVista(nuevo.Attribute("viewBox")!.Value);
         var texto = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + nuevo.ToString().Replace("\r\n", "\n") + "\n";
         return new ResultadoConversion(texto, trazados, segmentos, vista[0], vista[1], vista[2], vista[3], avisos);
+    }
+
+    /// <summary>
+    /// How many outlines of a straight-segment path lie outside its biggest one (plus that one): the pieces Bambu
+    /// Studio would have to build as a single face with "holes" that aren't inside it.
+    /// </summary>
+    internal static int PiezasSeparadas(string dLineal)
+    {
+        var contornos = new List<List<(double X, double Y)>>();
+        foreach (var parte in dLineal.Split('M', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var n = Numeros.Numero().Matches(parte).Select(x => Numeros.Leer(x.Value)).ToArray();
+            var puntos = new List<(double, double)>();
+            for (var i = 0; i + 1 < n.Length; i += 2) puntos.Add((n[i], n[i + 1]));
+            if (puntos.Count >= 3) contornos.Add(puntos);
+        }
+        if (contornos.Count < 2) return contornos.Count;
+        var mayor = contornos.MaxBy(c => Math.Abs(Area(c)))!;
+        return 1 + contornos.Count(c => c != mayor && !Adentro(c[0], mayor));
+    }
+
+    private static double Area(List<(double X, double Y)> p)
+    {
+        double a = 0;
+        for (int i = 0, j = p.Count - 1; i < p.Count; j = i++) a += p[j].X * p[i].Y - p[i].X * p[j].Y;
+        return a / 2;
+    }
+
+    private static bool Adentro((double X, double Y) q, List<(double X, double Y)> p)
+    {
+        var dentro = false;
+        for (int i = 0, j = p.Count - 1; i < p.Count; j = i++)
+            if ((p[i].Y > q.Y) != (p[j].Y > q.Y) && q.X < (p[j].X - p[i].X) * (q.Y - p[i].Y) / (p[j].Y - p[i].Y) + p[i].X)
+                dentro = !dentro;
+        return dentro;
     }
 
     private static string Cantidad(int n, string singular, string plural) => n == 1 ? "1 " + singular : $"{n} {plural}";

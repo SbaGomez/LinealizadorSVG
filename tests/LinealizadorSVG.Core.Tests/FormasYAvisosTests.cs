@@ -181,3 +181,51 @@ public class LoteTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_carpeta, "roto_BAMBU.svg")));
     }
 }
+
+public class SimulacionSinConvertirTests
+{
+    [Fact]
+    public void MarcaEnRiesgoLasPiezasSeparadasConCurvas()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+              <path d="M0 0 L10 0 L10 10 Z M20 0 C25 0 30 5 30 10 L20 10 Z"/>
+              <path d="M0 0 L10 0 L10 10 Z M20 0 L30 0 L30 10 Z"/>
+              <path d="M0 0 C50 0 50 50 50 50 L0 50 Z M10 10 L20 10 L20 20 Z"/>
+            </svg>
+            """;
+        var t = ConversorSvg.SimularSinConvertir(svg).Trazados;
+        Assert.True(t[0].EnRiesgo);   // curves + two separate pieces
+        Assert.False(t[1].EnRiesgo);  // separate pieces, but straight lines only
+        Assert.False(t[2].EnRiesgo);  // curves, but the second outline is a hole inside the first
+        Assert.All(ConversorSvg.Convertir(svg, 0.5).Trazados, x => Assert.False(x.EnRiesgo));
+    }
+
+    [Fact]
+    public void ConservaColoresYReglasDelArchivo()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" style="fill-rule:evenodd">
+              <style>.a {fill:#A98F71;fill-rule:nonzero}</style>
+              <path class="a" d="M0 0 L1 1"/>
+              <path d="M0 0 L2 2"/>
+            </svg>
+            """;
+        var t = ConversorSvg.SimularSinConvertir(svg).Trazados;
+        Assert.Equal(("#A98F71", "nonzero"), (t[0].Relleno, t[0].ReglaRelleno));
+        Assert.Equal(("#000000", "evenodd"), (t[1].Relleno, t[1].ReglaRelleno));
+    }
+
+    [Fact]
+    public void NoSigueLosUse()
+    {
+        const string svg = """
+            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10">
+              <defs><path id="p" d="M0 0 L1 1 L0 1 Z"/></defs>
+              <use xlink:href="#p"/>
+            </svg>
+            """;
+        Assert.Empty(ConversorSvg.SimularSinConvertir(svg).Trazados);
+        Assert.Single(ConversorSvg.Convertir(svg, 0.5).Trazados);
+    }
+}
